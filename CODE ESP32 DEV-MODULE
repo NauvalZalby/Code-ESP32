@@ -1,0 +1,86 @@
+#include <esp_now.h>
+#include <WiFi.h>
+#include <esp_wifi.h>
+
+// =====================================================
+// 1. MAC ADDRESS ESP32-CAM 
+// =====================================================
+uint8_t receiverAddress[] = {0xB4, 0xBF, 0xE9, 0x34, 0xBA, 0x98}; 
+
+// =====================================================
+// 2. KUNCI CHANNEL WI-FI ESP32-CAM SM
+// =====================================================
+const int targetChannel = 4; 
+
+// =====================================================
+// 3. PIN SENSOR
+// =====================================================
+const int pinGetaran = 18;  
+const int pinMagnet  = 25;  
+const int pinMotion  = 33;
+
+typedef struct struct_message {
+  int pir;
+  int vibration;
+  int magnet;
+} struct_message;
+
+struct_message sensorData;
+esp_now_peer_info_t peerInfo;
+
+// Callback Pengiriman Versi ESP32 Board v3.x.x
+void OnDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
+  Serial.print("Status Kirim ESP-NOW: ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "✅ Sukses Terkirim" : "❌ Gagal Terkirim");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.printf("\n--- ESP32 TRANSMITTER (LOCK CHANNEL %d) ---\n", targetChannel);
+
+  pinMode(pinGetaran, INPUT);
+  pinMode(pinMagnet, INPUT_PULLUP);
+  pinMode(pinMotion, INPUT);
+
+  WiFi.mode(WIFI_STA);
+
+  // Paksa Radio WiFi ke Channel Router ESP32-CAM
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(targetChannel, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+
+  // Inisialisasi ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("❌ Error Inisialisasi ESP-NOW");
+    return;
+  }
+
+  esp_now_register_send_cb(OnDataSent);
+
+  // Register Peer (ESP32-CAM)
+  memcpy(peerInfo.peer_addr, receiverAddress, 6);
+  peerInfo.channel = targetChannel; 
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("❌ Gagal Menambahkan Peer ESP32-CAM");
+    return;
+  }
+
+  Serial.printf("✅ ESP-NOW Transmitter Siap di Channel %d!\n", targetChannel);
+}
+
+void loop() {
+  sensorData.pir       = digitalRead(pinMotion);
+  sensorData.vibration = digitalRead(pinGetaran);
+  sensorData.magnet    = digitalRead(pinMagnet);
+
+  Serial.printf("📤 Sending Sensor Data -> PIR: %d | Getaran: %d | Magnet: %d | ", 
+                sensorData.pir, sensorData.vibration, sensorData.magnet);
+
+  esp_now_send(receiverAddress, (uint8_t *) &sensorData, sizeof(sensorData));
+
+  delay(3000); 
+}
